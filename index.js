@@ -2,9 +2,8 @@ require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
-const dns = require('dns');
 const mongoose = require('mongoose');
-
+const dns = require('dns');
 const app = express();
 
 // Connect to MongoDB
@@ -13,63 +12,59 @@ mongoose.connect(process.env.MONGO_URI, {
   useUnifiedTopology: true,
 });
 
+// Basic Configuration
+const port = process.env.PORT || 3000;
+
+app.use(cors());
+app.use('/public', express.static(`${process.cwd()}/public`));
+app.use(bodyParser.urlencoded({ extended: false }));
+
+app.get('/', function (req, res) {
+  res.sendFile(process.cwd() + '/views/index.html');
+});
+
 // Schema and model
 const urlSchema = new mongoose.Schema({
   original_url: String,
   short_url: Number,
 });
-
 const URLModel = mongoose.model('URL', urlSchema);
 
-// Middleware
-app.use(bodyParser.urlencoded({ extended: false }));
-app.use(bodyParser.json());
-app.use(cors());
-app.use('/public', express.static(`${process.cwd()}/public`));
+// Generate short URL counter (basic in-memory counter, better to use DB in real projects)
+let counter = 1;
 
-// Routes
-app.get('/', function (req, res) {
-  res.sendFile(process.cwd() + '/views/index.html');
-});
-
-app.get('/api/hello', function (req, res) {
-  res.json({ greeting: 'hello API' });
-});
-
-// POST: create short URL
+// POST endpoint to shorten a URL
 app.post('/api/shorturl', (req, res) => {
   const inputUrl = req.body.url;
 
   let hostname;
   try {
     hostname = new URL(inputUrl).hostname;
-  } catch {
+  } catch (err) {
     return res.json({ error: 'invalid url' });
   }
 
   dns.lookup(hostname, (err) => {
-    if (err) {
-      return res.json({ error: 'invalid url' });
-    }
+    if (err) return res.json({ error: 'invalid url' });
 
-    const shortId = Math.floor(Math.random() * 100000);
-
+    // Save the URL
     const newUrl = new URLModel({
       original_url: inputUrl,
-      short_url: shortId,
+      short_url: counter,
     });
 
-    newUrl.save((err, saved) => {
+    newUrl.save((err, data) => {
       if (err) return res.json({ error: 'db error' });
       res.json({
-        original_url: saved.original_url,
-        short_url: saved.short_url,
+        original_url: data.original_url,
+        short_url: data.short_url,
       });
+      counter++; // increment counter for next URL
     });
   });
 });
 
-// GET: redirect short URL to original
+// GET endpoint to redirect
 app.get('/api/shorturl/:urlid', (req, res) => {
   const id = Number(req.params.urlid);
 
@@ -82,7 +77,6 @@ app.get('/api/shorturl/:urlid', (req, res) => {
 });
 
 // Start server
-const port = process.env.PORT || 3000;
 app.listen(port, function () {
   console.log(`Listening on port ${port}`);
 });
