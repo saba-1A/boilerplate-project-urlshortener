@@ -6,35 +6,33 @@ const mongoose = require('mongoose');
 const dns = require('dns');
 const app = express();
 
-// Connect to MongoDB
+// MongoDB connection
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true,
 });
 
-// Basic Configuration
-const port = process.env.PORT || 3000;
-
-app.use(cors());
-app.use('/public', express.static(`${process.cwd()}/public`));
-app.use(bodyParser.urlencoded({ extended: false }));
-
-app.get('/', function (req, res) {
-  res.sendFile(process.cwd() + '/views/index.html');
-});
-
-// Schema and model
+// Schema
 const urlSchema = new mongoose.Schema({
   original_url: String,
   short_url: Number,
 });
+
 const URLModel = mongoose.model('URL', urlSchema);
 
-// Generate short URL counter (basic in-memory counter, better to use DB in real projects)
-let counter = 1;
+// Middleware
+const port = process.env.PORT || 3000;
+app.use(cors());
+app.use('/public', express.static(`${process.cwd()}/public`));
+app.use(bodyParser.urlencoded({ extended: false }));
 
-// POST endpoint to shorten a URL
-app.post('/api/shorturl', (req, res) => {
+// Routes
+app.get('/', function (req, res) {
+  res.sendFile(process.cwd() + '/views/index.html');
+});
+
+// POST /api/shorturl
+app.post('/api/shorturl', async (req, res) => {
   const inputUrl = req.body.url;
 
   let hostname;
@@ -44,39 +42,45 @@ app.post('/api/shorturl', (req, res) => {
     return res.json({ error: 'invalid url' });
   }
 
-  dns.lookup(hostname, (err) => {
+  dns.lookup(hostname, async (err) => {
     if (err) return res.json({ error: 'invalid url' });
 
-    // Save the URL
-    const newUrl = new URLModel({
+    // Check if already exists
+    const existing = await URLModel.findOne({ original_url: inputUrl });
+    if (existing) {
+      return res.json({
+        original_url: existing.original_url,
+        short_url: existing.short_url,
+      });
+    }
+
+    // Get count for new short URL
+    const count = await URLModel.estimatedDocumentCount();
+    const newEntry = new URLModel({
       original_url: inputUrl,
-      short_url: counter,
+      short_url: count + 1,
     });
 
-    newUrl.save((err, data) => {
-      if (err) return res.json({ error: 'db error' });
-      res.json({
-        original_url: data.original_url,
-        short_url: data.short_url,
-      });
-      counter++; // increment counter for next URL
+    await newEntry.save();
+    res.json({
+      original_url: newEntry.original_url,
+      short_url: newEntry.short_url,
     });
   });
 });
 
-// GET endpoint to redirect
-app.get('/api/shorturl/:urlid', (req, res) => {
-  const id = Number(req.params.urlid);
+// GET /api/shorturl/:urlid
+app.get('/api/shorturl/:urlid', async (req, res) => {
+  const id = parseInt(req.params.urlid);
 
-  URLModel.findOne({ short_url: id }, (err, data) => {
-    if (err || !data) {
-      return res.json({ error: 'No short URL found for the given input' });
-    }
-    res.redirect(data.original_url);
-  });
+  const found = await URLModel.findOne({ short_url: id });
+  if (!found) {
+    return res.json({ error: 'No short URL found for the given input' });
+  }
+  res.redirect(found.original_url);
 });
 
 // Start server
-app.listen(port, function () {
+app.listen(port, () => {
   console.log(`Listening on port ${port}`);
 });
