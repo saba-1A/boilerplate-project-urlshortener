@@ -1,66 +1,84 @@
 require('dotenv').config();
 const express = require('express');
-const bodyParser = require('body-parser')
+const bodyParser = require('body-parser');
 const cors = require('cors');
-const app = express();
+const dns = require('dns');
+const urlParser = require('url');
 const mongoose = require('mongoose');
-mongoose.connect(process.env.MONGO_URI);
 
-app.use(bodyParser.urlencoded({ extended: false }))
-app.use(bodyParser.json())
+const app = express();
 
+// Connect to MongoDB
+mongoose.connect(process.env.MONGO_URI, {
+  useNewUrlParser: true,
+  useUnifiedTopology: true
+});
 
-// Basic Configuration
-const port = process.env.PORT || 3000;
-
+// Middleware
 app.use(cors());
-
+app.use(bodyParser.urlencoded({ extended: false }));
 app.use('/public', express.static(`${process.cwd()}/public`));
 
-app.get('/', function(req, res) {
+// Routes
+app.get('/', (req, res) => {
   res.sendFile(process.cwd() + '/views/index.html');
 });
 
-// Your first API endpoint
-app.get('/api/hello', function(req, res) {
+app.get('/api/hello', (req, res) => {
   res.json({ greeting: 'hello API' });
 });
 
-app.listen(port, function() {
-  console.log(`Listening on port ${port}`);
-});
-
+// Schema & Model
 const urlSchema = new mongoose.Schema({
   original_url: String,
   short_url: String
-})
+});
 
-let URLModel = mongoose.model('URL', urlSchema)
+const URLModel = mongoose.model('URL', urlSchema);
 
-app.post('/api/shorturl/', (req, res) => {
-  console.log(req.body.url)
-  if (req.body.url.slice(0,4) === 'http') {
-    const randId = Math.floor(Math.random() * 99999999999999)
-    const reqUrl = new URLModel({
-        original_url: req.body.url, 
-        short_url: randId
-    })
-    reqUrl.save((err, data) => {
-      if (err) return console.error(err);
+// POST /api/shorturl
+app.post('/api/shorturl', (req, res) => {
+  const inputUrl = req.body.url;
+
+  // Validate with DNS lookup
+  const hostname = urlParser.parse(inputUrl).hostname;
+  dns.lookup(hostname, (err) => {
+    if (err) {
+      return res.json({ error: 'invalid url' });
+    }
+
+    // Generate short URL ID
+    const shortId = Math.floor(Math.random() * 100000).toString();
+
+    const newUrl = new URLModel({
+      original_url: inputUrl,
+      short_url: shortId
     });
-    
-    res.send({original_url: req.body.url, short_url: randId})
-  } else {
-    res.send({ error: 'invalid url' })
-  }
-})
 
-app.get('/api/shorturl/:urlid?', (req, res) => {
-  console.log(req.params.urlid)
-    URLModel.findOne({short_url: req.params.urlid}, (err, data) => {
-      if (err) return console.error(err)
-      res.writeHead(301, {
-        Location: data.original_url
-      }).end()
-    })
-})
+    newUrl.save((err, data) => {
+      if (err) return res.status(500).json({ error: 'Database error' });
+
+      res.json({
+        original_url: data.original_url,
+        short_url: data.short_url
+      });
+    });
+  });
+});
+
+// GET /api/shorturl/:urlid
+app.get('/api/shorturl/:urlid', (req, res) => {
+  URLModel.findOne({ short_url: req.params.urlid }, (err, data) => {
+    if (err || !data) {
+      return res.json({ error: 'No short URL found for the given input' });
+    }
+
+    res.redirect(301, data.original_url);
+  });
+});
+
+// Start server
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  console.log(`Listening on port ${port}`);
+});
