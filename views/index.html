@@ -1,98 +1,32 @@
-require('dotenv').config();
-const express = require('express');
-const bodyParser = require('body-parser');
-const cors = require('cors');
-const mongoose = require('mongoose');
-const dns = require('dns');
-const { URL } = require('url');
+<!DOCTYPE html>
 
-const app = express();
+<html>
+  <head>
+    <title>URL Shortener Microservice | freeCodeCamp.org</title>
+    <link
+      rel="icon"
+      type="image/png"
+      href="https://cdn.freecodecamp.org/universal/favicons/favicon-16x16.png"
+    />
+    <link href="/public/style.css" rel="stylesheet" type="text/css" />
+  </head>
 
-// ✅ MongoDB connection
-mongoose.connect(process.env.MONGO_URI, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-});
-
-// ✅ Schema
-const urlSchema = new mongoose.Schema({
-  original_url: String,
-  short_url: Number,
-});
-const URLModel = mongoose.model('URL', urlSchema);
-
-// ✅ Middleware
-const port = process.env.PORT || 3000;
-app.use(cors());
-app.use('/public', express.static(`${process.cwd()}/public`));
-app.use(bodyParser.urlencoded({ extended: false }));
-
-// ✅ Routes
-
-// Homepage
-app.get('/', function (req, res) {
-  res.sendFile(process.cwd() + '/views/index.html');
-});
-
-// POST to shorten a URL
-app.post('/api/shorturl', async (req, res) => {
-  const inputUrl = req.body.url;
-
-  // Step 1: Check if it starts with http or https
-  if (!/^https?:\/\/.+/i.test(inputUrl)) {
-    return res.json({ error: 'invalid url' });
-  }
-
-  // Step 2: Parse hostname
-  let hostname;
-  try {
-    hostname = new URL(inputUrl).hostname;
-  } catch (err) {
-    return res.json({ error: 'invalid url' });
-  }
-
-  // Step 3: DNS lookup
-  dns.lookup(hostname, async (err) => {
-    if (err) return res.json({ error: 'invalid url' });
-
-    // Step 4: Check if already stored
-    const existing = await URLModel.findOne({ original_url: inputUrl });
-    if (existing) {
-      return res.json({
-        original_url: existing.original_url,
-        short_url: existing.short_url,
-      });
-    }
-
-    // Step 5: Create new entry
-    const count = await URLModel.estimatedDocumentCount();
-    const newEntry = new URLModel({
-      original_url: inputUrl,
-      short_url: count + 1,
-    });
-
-    await newEntry.save();
-
-    res.json({
-      original_url: newEntry.original_url,
-      short_url: newEntry.short_url,
-    });
-  });
-});
-
-// GET: Redirect to original URL
-app.get('/api/shorturl/:urlid', async (req, res) => {
-  const id = parseInt(req.params.urlid);
-
-  const found = await URLModel.findOne({ short_url: id });
-  if (!found) {
-    return res.json({ error: 'No short URL found for the given input' });
-  }
-
-  res.redirect(found.original_url);
-});
-
-// Start server
-app.listen(port, () => {
-  console.log(`Listening on port ${port}`);
-});
+  <body>
+    <h1>URL Shortener Microservice</h1>
+    <main>
+      <section>
+        <form action="api/shorturl" method="POST">
+          <fieldset>
+            <legend>URL Shortener</legend>
+            <label for="url_input">URL:</label>
+            <input id="url_input" type="text" name="url" placeholder="https://www.freecodecamp.org/" />
+            <input type="submit" value="POST URL" />
+          </fieldset>
+        </form>
+      </section>
+    </main>
+    <footer>
+      <p>By <a href="https://www.freecodecamp.org/">freeCodeCamp</a></p>
+    </footer>
+  </body>
+</html>
